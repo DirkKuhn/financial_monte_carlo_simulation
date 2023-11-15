@@ -56,25 +56,25 @@ class MonteCarloSimulation:
         num_months = 12 * num_years
         safe_deposit_return_gen = FixedReturns(annualized_return=self.interest_rate)
 
-        investment_value_after_tax = self._simulate_value_over_time_after_tax(
+        investment_value_after_tax = self._simulate_after_tax(
             num_rows=self.num_sim, num_months=num_months, return_gen=self.investment_return_gen,
             current_payment=current_invest, monthly_payment=monthly_invest,
             tax_exemption=self.investment_tax_exemption, calculate_sequence=calculate_sequence
         )  # [num_sim, num_months or 1]
-        safe_deposit_value_after_tax = self._simulate_value_over_time_after_tax(
+        safe_deposit_value_after_tax = self._simulate_after_tax(
             num_rows=1, num_months=num_months, return_gen=safe_deposit_return_gen,
             current_payment=current_save, monthly_payment=monthly_save,
             tax_exemption=0, calculate_sequence=calculate_sequence
         )  # [1, num_months or 1]
         total_value = investment_value_after_tax + safe_deposit_value_after_tax  # [num_sim, num_months or 1]
-        total_value = self._adjust_for_inflation(total_value, num_months, calculate_sequence)
+        total_value = adjust_for_inflation(total_value, num_months, calculate_sequence, self.yearly_inflation_rate)
 
-        value_only_safe_deposit = self._simulate_value_over_time_after_tax(
+        value_only_safe_deposit = self._simulate_after_tax(
             num_rows=1, num_months=num_months, return_gen=safe_deposit_return_gen,
             current_payment=current_invest+current_save, monthly_payment=monthly_invest+monthly_save,
             tax_exemption=0, calculate_sequence=calculate_sequence
         )  # [1, num_months or 1]
-        value_only_safe_deposit = self._adjust_for_inflation(value_only_safe_deposit, num_months, calculate_sequence)
+        value_only_safe_deposit = adjust_for_inflation(value_only_safe_deposit, num_months, calculate_sequence, self.yearly_inflation_rate)
         value_only_safe_deposit = value_only_safe_deposit.squeeze(axis=0)  # [num_months or 1]
 
         return SimulationResult(
@@ -90,7 +90,7 @@ class MonteCarloSimulation:
             value_only_safe_deposit=value_only_safe_deposit
         )
 
-    def _simulate_value_over_time_after_tax_batched(
+    def _simulate_after_tax_batched(
             self, num_rows: int, num_months: int, return_gen: MonthlyReturnGenerator,
             current_payment: float, monthly_payment: float, tax_exemption: float,
             calculate_sequence: bool
@@ -99,13 +99,13 @@ class MonteCarloSimulation:
         num_rows_list = [(num_rows+i) // num_runs for i in range(num_runs)]
         value_list = []
         for num_rows in num_rows_list:
-            values = self._simulate_value_over_time_after_tax(
+            values = self._simulate_after_tax(
                 num_rows, num_months, return_gen, current_payment, monthly_payment, tax_exemption, calculate_sequence
             )
             value_list.append(values)
         return np.concatenate(value_list, axis=0)
 
-    def _simulate_value_over_time_after_tax(
+    def _simulate_after_tax(
             self, num_rows: int, num_months: int, return_gen: MonthlyReturnGenerator,
             current_payment: float, monthly_payment: float, tax_exemption: float,
             calculate_sequence: bool
@@ -114,9 +114,12 @@ class MonteCarloSimulation:
         payments = np.full(shape=num_months, fill_value=monthly_payment)
         payments[0] = current_payment
 
+        # [num_sim, num_months-1]
+        monthly_returns = return_gen.sample(num_rows=num_rows, num_months=num_months - 1)
+
         if calculate_sequence:
             # [num_sim, num_months, num_months]
-            return_matrix = self._sample_return_matrix(num_rows, num_months, return_gen)
+            return_matrix = sample_return_matrix(monthly_returns)
 
             # Value over time before tax and inflation
             value = (payments * return_matrix).sum(axis=-1)  # [num_sim, num_months]
@@ -124,7 +127,7 @@ class MonteCarloSimulation:
             total_paid = payments.cumsum()  # [num_months]
         else:
             # [num_sim, num_months]
-            returns = self._sample_returns(num_rows, num_months, return_gen)
+            returns = sample_returns(monthly_returns)
 
             # End value before tax and inflation
             value = (payments * returns).sum(axis=-1, keepdims=True)  # [num_sim, 1]
@@ -133,38 +136,54 @@ class MonteCarloSimulation:
 
         # Value after tax and before inflation
         # [num_sim, num_months or 1]
-        value -= self._calc_capital_gains_tax(profit=value-total_paid, exemption=tax_exemption)
+        value -= calc_capital_gains_tax(
+            profit=value-total_paid, exemption=tax_exemption, capital_gains_tax_rate=self.capital_gains_tax_rate
+        )
 
         return value
 
-    @staticmethod
-    def _sample_return_matrix(num_rows: int, num_months: int, return_gen: MonthlyReturnGenerator) -> np.ndarray:
-        # [num_sim, num_months, num_months]
-        # [i,:,:]: [1,       0,       ..., 0
-        #           r1,      1,       ..., 0
-        #           r1*r2,   r2,      ..., 0
-        #           ...,              ...,
-        #           r1...rd, r2...rd, ..., 1]
-        monthly_returns = return_gen.sample(num_rows=num_rows, num_months=num_months-1)  # [num_sim, num_months-1]
-        return_matrix = np.tile(np.eye(num_months), reps=(num_rows, 1, 1))
-        for i in range(num_months-1):
-            return_matrix[:, (i + 1):, i] = monthly_returns[:, i:].cumprod(axis=1)
-        return return_matrix
 
-    @staticmethod
-    def _sample_returns(num_rows: int, num_months: int, return_gen: MonthlyReturnGenerator) -> np.ndarray:
-        monthly_returns = return_gen.sample(num_rows=num_rows, num_months=num_months-1)  # [num_sim, num_months-1]
-        return_matrix = monthly_returns.cumprod(axis=1)[:, ::-1]
-        return np.hstack([return_matrix, np.ones((num_rows, 1))])
+def sample_return_matrix(monthly_returns: np.ndarray) -> np.ndarray:
+    """
+    :param monthly_returns: [num_sim, num_months-1]
+    :return: return_matrix: [num_sim, num_months, num_months]
+        [i,:,:]: [1,       0,       ..., 0
+                  r1,      1,       ..., 0
+                  r1*r2,   r2,      ..., 0
+                  ...,              ...,
+                  r1...rd, r2...rd, ..., 1]
+    """
+    num_sim = monthly_returns.shape[0]
+    num_months = monthly_returns.shape[1] + 1
+    return_matrix = np.tile(np.eye(num_months), reps=(num_sim, 1, 1))
+    for i in range(num_months-1):
+        return_matrix[:, (i + 1):, i] = monthly_returns[:, i:].cumprod(axis=1)
+    return return_matrix
 
-    def _calc_capital_gains_tax(self, profit: np.ndarray, exemption: float):
-        profit[profit < 0] = 0  # losses are not taxed
-        return profit * (1-exemption) * self.capital_gains_tax_rate
 
-    def _adjust_for_inflation(self, values: np.ndarray, num_months: int, calculate_sequence: bool) -> np.ndarray:
-        monthly_factor_inflation = 1 / (1 + self.yearly_inflation_rate) ** (1 / 12)
-        if calculate_sequence:
-            inflation_factor = monthly_factor_inflation ** np.arange(num_months)  # [num_months]
-        else:
-            inflation_factor = monthly_factor_inflation ** (num_months - 1)  # float
-        return values * inflation_factor  # [num_sim, num_months or 1]
+def sample_returns(monthly_returns: np.ndarray) -> np.ndarray:
+    """
+    :param monthly_returns: [num_sim, num_months-1]
+    :return: returns: [num_sim, num_months]
+    """
+    num_sim = monthly_returns.shape[0]
+    return_matrix = monthly_returns.cumprod(axis=1)[:, ::-1]  # [num_sim, num_months-1]
+    return np.hstack([return_matrix, np.ones((num_sim, 1))])
+
+
+def calc_capital_gains_tax(
+        profit: float | np.ndarray, exemption: float, capital_gains_tax_rate: float
+) -> float | np.ndarray:
+    profit[profit < 0] = 0  # losses are not taxed
+    return profit * (1-exemption) * capital_gains_tax_rate
+
+
+def adjust_for_inflation(
+        values: np.ndarray, num_months: int, calculate_sequence: bool, yearly_inflation_rate: float
+) -> np.ndarray:
+    monthly_factor_inflation = 1 / (1 + yearly_inflation_rate) ** (1 / 12)
+    if calculate_sequence:
+        inflation_factor = monthly_factor_inflation ** np.arange(num_months)  # [num_months]
+    else:
+        inflation_factor = monthly_factor_inflation ** (num_months - 1)  # float
+    return values * inflation_factor  # [num_sim, num_months or 1]
