@@ -105,17 +105,17 @@ class IndependentMonthlyGenerator(ABC):
         """
 
 
-class FixedReturns(IndependentMonthlyGenerator):
-    def __init__(self, annualized_return: float):
-        annualized_return += 1
-        self.monthly_return = annualized_return ** (1 / 12)
+class FixedFactors(IndependentMonthlyGenerator):
+    def __init__(self, annualized_increase: float):
+        annualized_increase += 1
+        self.monthly_factor = annualized_increase ** (1 / 12)
 
     def sample_path(self, num_months: int) -> np.ndarray:
-        return np.full(num_months, fill_value=self.monthly_return)
+        return np.full(num_months, fill_value=self.monthly_factor)
 
     @property
     def annualized_return(self) -> float:
-        return self.monthly_return ** 12
+        return self.monthly_factor ** 12
 
     @property
     def annualized_volatility(self) -> float:
