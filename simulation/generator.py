@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import pandas as pd
+import taichi as ti
 
 
 class HistoricalMonthlyGenerator(ABC):
@@ -97,9 +98,11 @@ class HistoricalGermanInflation(HistoricalMonthlyGenerator):
         self.print_statistics()
 
 
+@ti.data_oriented
 class IndependentMonthlyGenerator(ABC):
     @abstractmethod
-    def sample_path(self, num_months: int) -> np.ndarray:
+    @ti.func
+    def sample_path(self, num_months: int) -> ti.Field:
         """
         Generate a single monthly return
         """
@@ -110,8 +113,10 @@ class FixedFactors(IndependentMonthlyGenerator):
         annualized_increase += 1
         self.monthly_factor = annualized_increase ** (1 / 12)
 
-    def sample_path(self, num_months: int) -> np.ndarray:
-        return np.full(num_months, fill_value=self.monthly_factor)
+    def sample_path(self, num_months: int) -> ti.Field:
+        f: ti.Field = ti.field(dtype=float, shape=num_months)
+        f.fill(self.monthly_factor)
+        return f
 
     @property
     def annualized_return(self) -> float:
