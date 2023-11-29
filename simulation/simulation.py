@@ -72,13 +72,13 @@ class MonteCarloSimulation:
             acc_only_save = acc_invest + acc_save
             acc_inflation = 1.0
 
-            invest_increase, safe_increase, inflation_increase = self.factors_gen.sample(num_months)
             for j in range(num_months):  # Sequential
                 # Update accumulators
-                acc_invest = (acc_invest + monthly_invest) * invest_increase[j]
-                acc_save = (acc_save + monthly_save) * safe_increase[j]
-                acc_only_save = (acc_only_save + monthly_invest + monthly_save) * safe_increase[j]
-                acc_inflation *= inflation_increase[j]
+                invest_increase, safe_increase, inflation_increase = self.factors_gen.sample()
+                acc_invest = (acc_invest + monthly_invest) * invest_increase
+                acc_save = (acc_save + monthly_save) * safe_increase
+                acc_only_save = (acc_only_save + monthly_invest + monthly_save) * safe_increase
+                acc_inflation *= inflation_increase
 
             # Portfolio value before taxes and inflation
             value = acc_invest + acc_save
@@ -157,23 +157,19 @@ class FactorsGen:
         self.all_independent = self.ind_inv_ret and self.ind_safe_rates and self.ind_inflation_rates
 
     @ti.func
-    def sample(self, num_months: int) -> tuple[ti.Field, ti.Field, ti.Field]:
-        res_inv = self.investment_returns.sample_path(num_months) \
-            if ti.static(self.ind_inv_ret) else ti.field(dtype=float, shape=num_months)
-        res_safe = self.safe_rates.sample_path(num_months) \
-            if ti.static(self.ind_safe_rates) else ti.field(dtype=float, shape=num_months)
-        res_inflation = self.inflation_rates.sample_path(num_months) \
-            if ti.static(self.inflation_rates) else ti.field(dtype=float, shape=num_months)
+    def sample(self) -> tuple[float, float, float]:
+        res_inv = self.investment_returns.sample() if ti.static(self.ind_inv_ret) else 0.
+        res_safe = self.safe_rates.sample() if ti.static(self.ind_safe_rates) else 0.
+        res_inflation = self.inflation_rates.sample() if ti.static(self.inflation_rates) else 0.
 
-        if not self.all_independent:
-            for i in range(num_months):
-                idx = int(ti.floor(self.investment_returns.shape[0] * ti.random()))
-                if self.ind_inv_ret:
-                    res_inv[i] = self.investment_returns[idx]
-                if self.ind_safe_rates:
-                    res_safe[i] = self.safe_rates[idx]
-                if self.ind_inflation_rates:
-                    res_inflation[i] = self.inflation_rates[idx]
+        if ti.static(not self.all_independent):
+            idx = int(ti.floor(self.investment_returns.shape[0] * ti.random()))
+            if ti.static(self.ind_inv_ret):
+                res_inv = self.investment_returns[idx]
+            if ti.static(self.ind_safe_rates):
+                res_safe = self.safe_rates[idx]
+            if ti.static(self.ind_inflation_rates):
+                res_inflation = self.inflation_rates[idx]
 
         return res_inv, res_safe, res_inflation
 
@@ -200,8 +196,6 @@ if __name__ == '__main__':
         safe_deposit_rate_gen=Historical1YearUSBondYields(),
         inflation_rate_gen=HistoricalGermanInflation()
     )
-
-    sim.factors_gen.sample(12)
 
     from time import time
 
