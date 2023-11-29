@@ -34,7 +34,7 @@ class MonteCarloSimulation:
         self.num_sim = num_sim
         self.capital_gains_tax_rate = capital_gains_tax_rate
         self.investment_tax_exemption = investment_tax_exemption
-        self.factors_gen = _create_factors_gen(
+        self.factors_gen = FactorsGen(
             investment_return_gen, safe_deposit_rate_gen, inflation_rate_gen
         )
         self.values = ti.field(dtype=float, shape=(self.num_sim, 2))
@@ -111,72 +111,74 @@ class MonteCarloSimulation:
             self.values[i, 1] = value_only_safe
 
 
-def _create_factors_gen(
-        investment_return_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
-        safe_deposit_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
-        inflation_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator
-) -> "FactorsGen":
-    inv_values = safe_values = inflation_values = None
-
-    if isinstance(investment_return_gen, HistoricalMonthlyGenerator):
-        inv_values = investment_return_gen.values
-    if isinstance(safe_deposit_rate_gen, HistoricalMonthlyGenerator):
-        safe_values = safe_deposit_rate_gen.values
-    if isinstance(inflation_rate_gen, HistoricalMonthlyGenerator):
-        inflation_values = inflation_rate_gen.values
-
-    values = [v for v in [inv_values, safe_values, inflation_values] if v is not None]
-    if values:
-        common_idx = values[0].index
-        for i in range(1, len(values)):
-            common_idx = common_idx.intersection(values[i].index)
-
-    return FactorsGen(
-        inv_values[common_idx] if inv_values is not None else investment_return_gen,
-        safe_values[common_idx] if safe_values is not None else safe_deposit_rate_gen,
-        inflation_values[common_idx] if inflation_values is not None else inflation_rate_gen
-    )
+class PlaceHolder(IndependentMonthlyGenerator):
+    @ti.func
+    def sample(self) -> float:
+        return 0.
 
 
 @ti.data_oriented
 class FactorsGen:
     def __init__(
             self,
-            investment_returns: Sequence[float] | IndependentMonthlyGenerator,
-            safe_rates: Sequence[float] | IndependentMonthlyGenerator,
-            inflation_rates: Sequence[float] | IndependentMonthlyGenerator,
+            investment_return_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
+            safe_deposit_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
+            inflation_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator
     ):
-        self.ind_inv_ret = isinstance(investment_returns, IndependentMonthlyGenerator)
-        self.ind_safe_rates = isinstance(safe_rates, IndependentMonthlyGenerator)
-        self.ind_inflation_rates = isinstance(inflation_rates, IndependentMonthlyGenerator)
+        self.use_ind_inv_ret_gen = isinstance(investment_return_gen, IndependentMonthlyGenerator)
+        self.use_ind_safe_deposit_rate_gen = isinstance(safe_deposit_rate_gen, IndependentMonthlyGenerator)
+        self.use_ind_inflation_rate_gen = isinstance(inflation_rate_gen, IndependentMonthlyGenerator)
 
-        self.investment_returns = investment_returns if self.ind_inv_ret else _convert(investment_returns)
-        self.safe_rates = safe_rates if self.ind_safe_rates else _convert(safe_rates)
-        self.inflation_rates = inflation_rates if self.ind_inflation_rates else _convert(inflation_rates)
+        self.all_independent = self.use_ind_inv_ret_gen \
+            and self.use_ind_inflation_rate_gen \
+            and self.use_ind_inflation_rate_gen
 
-        self.all_independent = self.ind_inv_ret and self.ind_safe_rates and self.ind_inflation_rates
+        self.ind_inv_return_gen = investment_return_gen if self.use_ind_inv_ret_gen else PlaceHolder()
+        self.ind_safe_deposit_rate_gen = safe_deposit_rate_gen if self.use_ind_safe_deposit_rate_gen else PlaceHolder()
+        self.ind_inflation_rate_gen = inflation_rate_gen if self.use_ind_inflation_rate_gen else PlaceHolder()
+
+        self.length_values = 0
+
+        self.hist_inv_returns = None if self.use_ind_inv_ret_gen else investment_return_gen.values
+        self.hist_safe_deposit_rates = None if self.use_ind_safe_deposit_rate_gen else safe_deposit_rate_gen.values
+        self.hist_inflation_rates = None if self.use_ind_inflation_rate_gen else inflation_rate_gen.values
+
+        values = [v for v in [self.hist_inv_returns, self.hist_safe_deposit_rates, self.hist_inflation_rates]
+                  if v is not None]
+        if values:
+            common_idx = values[0].index
+            for i in range(1, len(values)):
+                common_idx = common_idx.intersection(values[i].index)
+            self.length_values = len(common_idx)
+
+        self.hist_inv_returns = ti.field(dtype=float, shape=()) \
+            if self.use_ind_inv_ret_gen else _convert(self.hist_inv_returns[common_idx])
+        self.hist_safe_deposit_rates = ti.field(dtype=float, shape=()) \
+            if self.use_ind_safe_deposit_rate_gen else _convert(self.hist_safe_deposit_rates[common_idx])
+        self.hist_inflation_rates = ti.field(dtype=float, shape=()) \
+            if self.use_ind_inflation_rate_gen else _convert(self.hist_inflation_rates[common_idx])
 
     @ti.func
     def sample(self) -> tuple[float, float, float]:
-        res_inv = self.investment_returns.sample() if ti.static(self.ind_inv_ret) else 0.
-        res_safe = self.safe_rates.sample() if ti.static(self.ind_safe_rates) else 0.
-        res_inflation = self.inflation_rates.sample() if ti.static(self.inflation_rates) else 0.
+        res_inv = self.ind_inv_return_gen.sample() if ti.static(self.use_ind_inv_ret_gen) else 0.
+        res_safe = self.ind_safe_deposit_rate_gen.sample() if ti.static(self.use_ind_safe_deposit_rate_gen) else 0.
+        res_inflation = self.ind_inflation_rate_gen.sample() if ti.static(self.use_ind_inflation_rate_gen) else 0.
 
         if ti.static(not self.all_independent):
-            idx = int(ti.floor(self.investment_returns.shape[0] * ti.random()))
-            if ti.static(self.ind_inv_ret):
-                res_inv = self.investment_returns[idx]
-            if ti.static(self.ind_safe_rates):
-                res_safe = self.safe_rates[idx]
-            if ti.static(self.ind_inflation_rates):
-                res_inflation = self.inflation_rates[idx]
+            idx = int(ti.floor(self.length_values * ti.random()))
+            if ti.static(not self.use_ind_inv_ret_gen):
+                res_inv = self.hist_inv_returns[idx]
+            if ti.static(not self.use_ind_safe_deposit_rate_gen):
+                res_safe = self.hist_safe_deposit_rates[idx]
+            if ti.static(not self.use_ind_inflation_rate_gen):
+                res_inflation = self.hist_inflation_rates[idx]
 
         return res_inv, res_safe, res_inflation
 
 
 def _convert(seq: Sequence[float]) -> ti.Field:
     x = np.array(seq)
-    f = ti.field(float, shape=x.shape)
+    f = ti.field(dtype=float, shape=x.shape)
     f.from_numpy(x)
     return f
 
@@ -189,7 +191,7 @@ if __name__ == '__main__':
     )
 
     sim = MonteCarloSimulation(
-        num_sim=10_000,
+        num_sim=300_000,
         capital_gains_tax_rate=0.278186,
         investment_tax_exemption=0.3,
         investment_return_gen=HistoricalACWIIMIReturns(),
@@ -199,10 +201,10 @@ if __name__ == '__main__':
 
     from time import time
 
-    for i in range(10):
+    for i in range(2):
         t = time()
         res = sim(
-            num_years=500,
+            num_years=100,
             current_invest=10_000, current_save=10_000,
             monthly_invest=1_000, monthly_save=1_000
         )

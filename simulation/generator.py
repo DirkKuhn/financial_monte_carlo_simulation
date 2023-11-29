@@ -101,7 +101,6 @@ class HistoricalGermanInflation(HistoricalMonthlyGenerator):
 @ti.data_oriented
 class IndependentMonthlyGenerator(ABC):
     @abstractmethod
-    @ti.func
     def sample(self) -> float:
         """
         Generate a single monthly return
@@ -113,6 +112,7 @@ class FixedFactors(IndependentMonthlyGenerator):
         annualized_increase += 1
         self.monthly_factor = annualized_increase ** (1 / 12)
 
+    @ti.func
     def sample(self) -> float:
         return self.monthly_factor
 
