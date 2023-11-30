@@ -29,7 +29,7 @@ class MonteCarloSimulation:
             safe_deposit_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
             inflation_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
             arch=ti.gpu,
-            result_plotter: ResultPlotter = ResultPlotter()
+            result_plotter: None | ResultPlotter = ResultPlotter()
     ):
         ti.init(arch=arch)
 
@@ -46,7 +46,7 @@ class MonteCarloSimulation:
             self, num_years: int,
             current_invest: float, current_save: float,
             monthly_invest: float, monthly_save: float
-    ) -> None:
+    ) -> SimulationResult:
         self._simulate(
             num_months=num_years*12,
             current_invest=current_invest, current_save=current_save,
@@ -62,7 +62,9 @@ class MonteCarloSimulation:
             value=values[:, 0],
             value_only_safe_deposit=values[:, 1]
         )
-        self.result_plotter.print_result(result)
+        if self.result_plotter:
+            self.result_plotter.print_result(result)
+        return result
 
     @ti.kernel
     def _simulate(
@@ -128,7 +130,8 @@ if __name__ == '__main__':
         investment_tax_exemption=0.3,
         investment_return_gen=HistoricalACWIIMIReturns(),
         safe_deposit_rate_gen=Historical1YearUSBondYields(),
-        inflation_rate_gen=HistoricalGermanInflation()
+        inflation_rate_gen=HistoricalGermanInflation(),
+        result_plotter=None
     )
 
     from time import time

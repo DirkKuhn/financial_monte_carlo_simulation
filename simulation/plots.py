@@ -33,18 +33,18 @@ class ResultPlotter:
         print(f'Average resulting wealth:                   {result.value.mean():,.0f}')
         print(f'Average resulting wealth only safe deposit: {result.value_only_safe_deposit.mean():,.0f}')
 
+        total_payment = result.current_invest + result.current_save
+        total_payment += result.num_years * 12 * (result.monthly_invest + result.monthly_save)
+        print(f'Total payment:                              {total_payment:,.0f}')
+
         fraction_worse_outcomes = (
             (result.value < result.value_only_safe_deposit).sum() / len(result.value) * 100
         )
-        print(f'Fraction of Worse Outcomes compared only safe deposit: {fraction_worse_outcomes:.1f}%')
+        print(f'Fraction of Worse Outcomes compared to only safe deposit: {fraction_worse_outcomes:.1f}%')
 
         loss_idx = result.value < result.value_only_safe_deposit
         conditional_mean_loss = (result.value[loss_idx] - result.value_only_safe_deposit[loss_idx]).mean()
         print(f'Conditional mean loss: {conditional_mean_loss:.1f}')
-
-        total_payment = result.current_invest + result.current_save
-        total_payment += result.num_years * 12 * (result.monthly_invest + result.monthly_save)
-        print(f'Total payment: {total_payment:.0f}')
 
     def print_histogram(self, result: 'SimulationResult') -> None:
         fig, ax = plt.subplots()
