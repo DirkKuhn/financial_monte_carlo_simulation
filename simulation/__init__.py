@@ -1,7 +1,7 @@
-from .generator import (
+from simulation.generator import (
     HistoricalACWIIMIReturns,
     Historical1YearUSBondYields,
     HistoricalGermanInflation
 )
-from .simulation import MonteCarloSimulation
-from .plots import ResultPlotter
+from simulation.simulation import MonteCarloSimulation
+from simulation.plots import ResultPlotter

@@ -1,9 +1,13 @@
 import locale
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import taichi as ti
+
+
+parent_path = Path(__file__).parent
 
 
 class HistoricalMonthlyGenerator(ABC):
@@ -54,14 +58,14 @@ class HistoricalACWIIMIReturns(HistoricalMonthlyGenerator):
     @staticmethod
     def _read_file(path: str) -> pd.Series:
         return pd.read_excel(
-            path, header=6, names=['date', 'value'], skipfooter=19,
+            parent_path / path, header=6, names=['date', 'value'], skipfooter=19,
             parse_dates=['date'], thousands=',', index_col='date', date_format="%b %d, %Y"
         ).squeeze()
 
 
 class Historical1YearUSBondYields(HistoricalMonthlyGenerator):
     def __init__(self):
-        yields_each_day = pd.read_csv("data/1-year-treasury-rate-yield-chart.csv", skiprows=15, index_col=0, parse_dates=True)
+        yields_each_day = pd.read_csv(parent_path / "data/1-year-treasury-rate-yield-chart.csv", skiprows=15, index_col=0, parse_dates=True)
         yields_each_day = yields_each_day.dropna().squeeze()
         yields_each_day = yields_each_day / 100 + 1
         avg_yields_each_month = yields_each_day.resample('M').apply(lambda s: s.prod() ** (1/len(s))).to_period('M')
@@ -73,7 +77,7 @@ class Historical1YearUSBondYields(HistoricalMonthlyGenerator):
 
 class HistoricalGermanInflation(HistoricalMonthlyGenerator):
     def __init__(self):
-        yearly_percentages_before_jan_1991 = pd.read_excel("data/API_FP.CPI.TOTL.ZG_DS2_en_excel_v2_5994828.xls", header=3, index_col=0)
+        yearly_percentages_before_jan_1991 = pd.read_excel(parent_path / "data/API_FP.CPI.TOTL.ZG_DS2_en_excel_v2_5994828.xls", header=3, index_col=0)
         yearly_percentages_before_jan_1991 = yearly_percentages_before_jan_1991.loc['Germany'].iloc[3:]
         yearly_percentages_before_jan_1991 = yearly_percentages_before_jan_1991.astype(float) / 100 + 1
         yearly_percentages_before_jan_1991.index = pd.to_datetime(yearly_percentages_before_jan_1991.index)
@@ -81,10 +85,13 @@ class HistoricalGermanInflation(HistoricalMonthlyGenerator):
 
         default_locale = locale.getlocale()
         locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
-        monthly_price_levels_after_jan_1991 = pd.read_excel(
-            "data/61111-0002_$F.xlsx", header=3, index_col=[0], parse_dates=[[0, 1]],
-            date_format="%Y %B", skiprows=[4], skipfooter=3, na_values="..."
-        )
+
+        import warnings
+        with warnings.catch_warnings(record=True):
+            monthly_price_levels_after_jan_1991 = pd.read_excel(
+                parent_path / "data/61111-0002_$F.xlsx", header=3, index_col=[0], parse_dates=[[0, 1]],
+                date_format="%Y %B", skiprows=[4], skipfooter=3, na_values="..."
+            )
         locale.setlocale(locale.LC_ALL, ".".join(default_locale))
         monthly_price_levels_after_jan_1991 = monthly_price_levels_after_jan_1991.loc[:, "Verbraucherpreisindex"].dropna()
         monthly_percentages_after_jan_1991 = monthly_price_levels_after_jan_1991.shift(-1).div(monthly_price_levels_after_jan_1991).dropna()
