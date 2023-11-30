@@ -5,6 +5,7 @@ import taichi as ti
 
 from simulation.generator import HistoricalMonthlyGenerator, IndependentMonthlyGenerator
 from simulation.factor_generator import FactorsGen
+from simulation.plots import ResultPlotter
 
 
 class SimulationResult(NamedTuple):
@@ -27,7 +28,8 @@ class MonteCarloSimulation:
             investment_return_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
             safe_deposit_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
             inflation_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
-            arch=ti.gpu
+            arch=ti.gpu,
+            result_plotter: ResultPlotter = ResultPlotter()
     ):
         ti.init(arch=arch)
 
@@ -37,20 +39,21 @@ class MonteCarloSimulation:
         self.factors_gen = FactorsGen(
             investment_return_gen, safe_deposit_rate_gen, inflation_rate_gen
         )
+        self.result_plotter = result_plotter
         self.values = ti.field(dtype=float, shape=(self.num_sim, 2))
 
     def __call__(
             self, num_years: int,
             current_invest: float, current_save: float,
             monthly_invest: float, monthly_save: float
-    ) -> SimulationResult:
+    ) -> None:
         self._simulate(
             num_months=num_years*12,
             current_invest=current_invest, current_save=current_save,
             monthly_invest=monthly_invest, monthly_save=monthly_save
         )
         values = self.values.to_numpy()
-        return SimulationResult(
+        result = SimulationResult(
             num_years=num_years,
             current_invest=current_invest,
             current_save=current_save,
@@ -59,6 +62,7 @@ class MonteCarloSimulation:
             value=values[:, 0],
             value_only_safe_deposit=values[:, 1]
         )
+        self.result_plotter.print_result(result)
 
     @ti.kernel
     def _simulate(
@@ -131,7 +135,7 @@ if __name__ == '__main__':
 
     for i in range(5):
         t = time()
-        res = sim(
+        sim(
             num_years=100,
             current_invest=10_000, current_save=10_000,
             monthly_invest=1_000, monthly_save=1_000

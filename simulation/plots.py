@@ -1,36 +1,28 @@
+from typing import TYPE_CHECKING
 from collections.abc import Sequence
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from simulation.simulation import SimulationResult
+if TYPE_CHECKING:
+    from simulation.run import SimulationResult
 
 
 class ResultPlotter:
     def __init__(
             self,
-            result: SimulationResult,
             percentiles: Sequence[float] = (0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9)
     ):
-        self.result = result
         self.percentiles = percentiles
 
-    def print_result(self) -> None:
-        self.print_info()
-        self.print_statistics(self.percentiles)
-        self.print_histogram()
+    def print_result(self, result: 'SimulationResult') -> None:
+        self.print_statistics(result)
+        self.print_histogram(result)
 
-    def print_info(self) -> None:
-        print(f"Investment horizon:            {self.result.num_years} years")
-        print(f"Currently invested:            {self.result.current_invest:,.0f}")
-        print(f"Currently risk free deposited: {self.result.current_save:,.0f}")
-        print(f"Monthly invested:              {self.result.monthly_invest:,.0f}")
-        print(f"Monthly risk free deposited:   {self.result.monthly_save:,.0f}")
-
-    def print_statistics(self, percentiles: Sequence[float]) -> None:
-        df = pd.DataFrame(self.result.value)
+    def print_statistics(self, result: 'SimulationResult') -> None:
+        df = pd.DataFrame(result.value)
         pd.options.display.float_format = '{:,.2f}'.format
-        quantiles = df.quantile(percentiles)
+        quantiles = df.quantile(self.percentiles)
         quantiles.index.name = "Percentiles"
         quantiles.columns = ["Resulting Wealth"]
         if is_notebook():
@@ -38,25 +30,29 @@ class ResultPlotter:
         else:
             print(quantiles.to_string())
 
-        print(f'Average resulting wealth:                   {self.result.value.mean():,.0f}')
-        print(f'Average resulting wealth only safe deposit: {self.result.value_only_safe_deposit.mean():,.0f}')
+        print(f'Average resulting wealth:                   {result.value.mean():,.0f}')
+        print(f'Average resulting wealth only safe deposit: {result.value_only_safe_deposit.mean():,.0f}')
 
         fraction_worse_outcomes = (
-            (self.result.value < self.result.value_only_safe_deposit).sum() / len(self.result.value) * 100
+            (result.value < result.value_only_safe_deposit).sum() / len(result.value) * 100
         )
-        print(f'Fraction of Worse Outcomes compared to not investing: {fraction_worse_outcomes:.1f}%')
+        print(f'Fraction of Worse Outcomes compared only safe deposit: {fraction_worse_outcomes:.1f}%')
 
-        loss_idx = self.result.value < self.result.value_only_safe_deposit
-        conditional_mean_loss = (self.result.value[loss_idx] - self.result.value_only_safe_deposit[loss_idx]).mean()
+        loss_idx = result.value < result.value_only_safe_deposit
+        conditional_mean_loss = (result.value[loss_idx] - result.value_only_safe_deposit[loss_idx]).mean()
         print(f'Conditional mean loss: {conditional_mean_loss:.1f}')
 
-    def print_histogram(self) -> None:
+        total_payment = result.current_invest + result.current_save
+        total_payment += result.num_years * 12 * (result.monthly_invest + result.monthly_save)
+        print(f'Total payment: {total_payment:.0f}')
+
+    def print_histogram(self, result: 'SimulationResult') -> None:
         fig, ax = plt.subplots()
-        ax.hist(self.result.value, bins='auto')
+        ax.hist(result.value, bins='auto')
         ax.set_title("Histogram of investment outcomes")
         ax.set_ylabel("Amount of observations")
         ax.set_xlabel("Resulting wealth after tax and inflation")
-        ax.vlines(x=self.result.value_only_safe_deposit.mean(), ymin=ax.get_ylim()[0], ymax=ax.get_ylim()[1], color='r')
+        ax.vlines(x=result.value_only_safe_deposit.mean(), ymin=ax.get_ylim()[0], ymax=ax.get_ylim()[1], color='r')
         plt.tight_layout()
         if not is_notebook():
             plt.show()
@@ -64,6 +60,7 @@ class ResultPlotter:
 
 def is_notebook() -> bool:
     """
+    Check whether this is run from a jupyter notebook or a terminal.
     See: https://stackoverflow.com/questions/15411967/how-can-i-check-if-code-is-executed-in-the-ipython-notebook
     """
     try:

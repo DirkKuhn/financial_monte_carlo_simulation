@@ -3,5 +3,5 @@ from simulation.generator import (
     Historical1YearUSBondYields,
     HistoricalGermanInflation
 )
-from simulation.simulation import MonteCarloSimulation
+from simulation.run import MonteCarloSimulation
 from simulation.plots import ResultPlotter
