@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import numpy as np
 import taichi as ti
@@ -28,7 +28,7 @@ class MonteCarloSimulation:
             investment_return_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
             safe_deposit_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
             inflation_rate_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
-            arch=ti.gpu,
+            arch: Union['ti.cpu', 'ti.gpu'] = ti.gpu,
             result_plotter: None | ResultPlotter = ResultPlotter()
     ):
         ti.init(arch=arch)
