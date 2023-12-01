@@ -39,6 +39,7 @@ class FactorsGen:
             for i in range(1, len(values)):
                 common_idx = common_idx.intersection(values[i].index)
             self.length_values = len(common_idx)
+            assert self.length_values > 0, "Indices are disjunctive!"
 
         self.hist_inv_returns = ti.field(dtype=float, shape=()) \
             if self.use_ind_inv_ret_gen else _convert(self.hist_inv_returns[common_idx])
@@ -72,7 +73,7 @@ class PlaceHolder(IndependentMonthlyGenerator):
 
 
 def _convert(seq: Sequence[float]) -> ti.Field:
-    x = np.array(seq)
+    x = np.array(seq, dtype=np.float32)
     f = ti.field(dtype=float, shape=x.shape)
     f.from_numpy(x)
     return f

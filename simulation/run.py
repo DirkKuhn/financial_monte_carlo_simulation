@@ -156,17 +156,29 @@ wrapped_calc_tax_only_save = ti.func(calc_tax_only_save)
 
 if __name__ == '__main__':
     from generator import (
-        HistoricalACWIIMIReturns,
+        HistoricalACWIIMIUSDReturns,
+        HistoricalACWIIMIEURReturns,
         Historical1YearUSBondYields,
+        HistoricalECBRate,
         HistoricalGermanInflation
     )
+
+    # sim = MonteCarloSimulation(
+    #     num_sim=300_000,
+    #     capital_gains_tax_rate=0.278186,
+    #     investment_tax_exemption=0.3,
+    #     investment_return_gen=HistoricalACWIIMIReturns(),
+    #     safe_deposit_rate_gen=Historical1YearUSBondYields(),
+    #     inflation_rate_gen=HistoricalGermanInflation(),
+    #     result_plotter=None
+    # )
 
     sim = MonteCarloSimulation(
         num_sim=300_000,
         capital_gains_tax_rate=0.278186,
         investment_tax_exemption=0.3,
-        investment_return_gen=HistoricalACWIIMIReturns(),
-        safe_deposit_rate_gen=Historical1YearUSBondYields(),
+        investment_return_gen=HistoricalACWIIMIEURReturns(),
+        safe_deposit_rate_gen=HistoricalECBRate(),
         inflation_rate_gen=HistoricalGermanInflation(),
         result_plotter=None
     )

@@ -35,7 +35,7 @@ class ResultPlotter:
 
         total_payment = result.current_invest + result.current_save
         total_payment += result.num_years * 12 * (result.monthly_invest + result.monthly_save)
-        print(f'Total payment:                              {total_payment:,.0f}')
+        print(f'Total payment (ignored inflation):          {total_payment:,.0f}')
 
         fraction_worse_outcomes = (
             (result.value < result.value_only_safe_deposit).sum() / len(result.value) * 100

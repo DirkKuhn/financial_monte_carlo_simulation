@@ -1,6 +1,8 @@
 from simulation.generator import (
-    HistoricalACWIIMIReturns,
+    HistoricalACWIIMIUSDReturns,
+    HistoricalACWIIMIEURReturns,
     Historical1YearUSBondYields,
+    HistoricalECBRate,
     HistoricalGermanInflation,
     FixedFactors
 )
