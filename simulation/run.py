@@ -100,12 +100,21 @@ class MonteCarloSimulation:
             profit_only_save = value_only_safe - (invest_payment + save_payment)
 
             # Losses between ETFs and bonds/savings accounts are settled
-            tax_invest = max(0., profit_invest + min(0., profit_save)) \
-                * (1. - self.investment_tax_exemption) * self.capital_gains_tax_rate
-            tax_safe = max(0., profit_save + min(0., profit_invest)) * self.capital_gains_tax_rate
-            tax_only_save = max(0., profit_only_save) * self.capital_gains_tax_rate
+            tax_invest = wrapped_calc_tax_invest(
+                profit_invest=profit_invest, profit_save=profit_save,
+                investment_tax_exemption=self.investment_tax_exemption,
+                capital_gains_tax_rate=self.capital_gains_tax_rate
+            )
+            tax_save = wrapped_calc_tax_save(
+                profit_invest=profit_invest, profit_save=profit_save,
+                capital_gains_tax_rate=self.capital_gains_tax_rate
+            )
+            tax_only_save = wrapped_calc_tax_only_save(
+                profit_only_save=profit_only_save,
+                capital_gains_tax_rate=self.capital_gains_tax_rate
+            )
 
-            value -= tax_invest + tax_safe
+            value -= tax_invest + tax_save
             value_only_safe -= tax_only_save
 
             # Portfolio value after inflation
@@ -115,6 +124,34 @@ class MonteCarloSimulation:
             # Store portfolio value
             self.values[i, 0] = value
             self.values[i, 1] = value_only_safe
+
+
+def calc_tax_invest(
+        profit_invest: float, profit_save: float,
+        investment_tax_exemption: float, capital_gains_tax_rate: float
+) -> float:
+    return (
+        max(0., profit_invest + min(0., profit_save))
+        * (1. - investment_tax_exemption) * capital_gains_tax_rate
+    )
+
+
+def calc_tax_save(
+        profit_invest: float, profit_save: float,
+        capital_gains_tax_rate: float
+) -> float:
+    return max(0., profit_save + min(0., profit_invest)) * capital_gains_tax_rate
+
+
+def calc_tax_only_save(
+        profit_only_save: float, capital_gains_tax_rate: float
+) -> float:
+    return max(0., profit_only_save) * capital_gains_tax_rate
+
+
+wrapped_calc_tax_invest = ti.func(calc_tax_invest)
+wrapped_calc_tax_save = ti.func(calc_tax_save)
+wrapped_calc_tax_only_save = ti.func(calc_tax_only_save)
 
 
 if __name__ == '__main__':

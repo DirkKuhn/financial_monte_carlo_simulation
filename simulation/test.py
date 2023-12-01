@@ -2,6 +2,7 @@ import pytest
 from pytest import approx
 
 from simulation import MonteCarloSimulation, FixedFactors
+from simulation.run import calc_tax_invest, calc_tax_save, calc_tax_only_save
 
 
 def run(
@@ -36,23 +37,57 @@ def calc_expected_before_tax_and_inflation(
         current_invest: float, current_save: float,
         monthly_invest: float, monthly_save: float,
         num_months: int
-) -> tuple[float, float]:
+) -> tuple[float, float, float, float]:
     monthly_return = (1. + fixed_return) ** (1 / 12)
     monthly_rate = (1. + fixed_safe_deposit_rate) ** (1 / 12)
 
-    expected_value = (
-        current_invest * monthly_return ** num_months
-        + monthly_invest * ((1 - monthly_return ** (num_months + 1)) / (1 - monthly_return) - 1)
-        + current_save * monthly_rate ** num_months
+    expected_value_invest = (
+            current_invest * monthly_return ** num_months
+            + monthly_invest * ((1 - monthly_return ** (num_months + 1)) / (1 - monthly_return) - 1)
+    )
+    expected_value_save = (
+        current_save * monthly_rate ** num_months
         + monthly_save * ((1 - monthly_rate ** (num_months + 1)) / (1 - monthly_rate) - 1)
     )
+    expected_value = expected_value_invest + expected_value_save
 
     expected_value_only_safe_deposit = (
         (current_invest + current_save) * monthly_rate ** num_months
         + (monthly_invest + monthly_save) * ((1 - monthly_rate ** (num_months + 1)) / (1 - monthly_rate) - 1)
     )
 
-    return expected_value, expected_value_only_safe_deposit
+    return expected_value, expected_value_only_safe_deposit, expected_value_invest, expected_value_save
+
+
+def calc_expected_after_tax(
+        investment_tax_exemption: float, capital_gains_tax_rate: float,
+        value_invest: float, value_save: float, value_only_safe_deposit: float,
+        current_invest: float, current_save: float,
+        monthly_invest: float, monthly_save: float,
+        num_months: int
+) -> tuple[float, float]:
+    invest_payment = current_invest + num_months * monthly_invest
+    save_payment = current_save + num_months * monthly_save
+
+    profit_invest = value_invest - invest_payment
+    profit_save = value_save - save_payment
+    profit_only_save = value_only_safe_deposit - (invest_payment + save_payment)
+
+    tax_invest = calc_tax_invest(
+        profit_invest=profit_invest, profit_save=profit_save,
+        investment_tax_exemption=investment_tax_exemption, capital_gains_tax_rate=capital_gains_tax_rate
+    )
+    tax_save = calc_tax_save(
+        profit_invest=profit_invest, profit_save=profit_save, capital_gains_tax_rate=capital_gains_tax_rate
+    )
+    tax_only_save = calc_tax_only_save(
+        profit_only_save=profit_only_save, capital_gains_tax_rate=capital_gains_tax_rate
+    )
+
+    expected_value = value_invest + value_save - (tax_invest + tax_save)
+    expected_value_only_save = value_only_safe_deposit - tax_only_save
+
+    return expected_value, expected_value_only_save
 
 
 @pytest.mark.parametrize(
@@ -60,7 +95,7 @@ def calc_expected_before_tax_and_inflation(
     [
         (0.04, 0.02, 10_000, 10_000, 1_000, 1_000, 12),
         (0.04, 0.02, 10_000, 10_000, 1_000, 1_000,  0),
-        (0.04, 0.02, 10_000,      0, 1_000,     0, 12),
+        (0.04, 0.02, 10_000,      0, 1_000,     0, 12)
     ]
 )
 def test_fixed_rate_before_tax_and_inflation(
@@ -77,7 +112,7 @@ def test_fixed_rate_before_tax_and_inflation(
         monthly_invest=monthly_invest, monthly_save=monthly_save,
         num_months=num_months
     )
-    expected_value, expected_value_only_safe_deposit = calc_expected_before_tax_and_inflation(
+    expected_value, expected_value_only_safe_deposit, *_ = calc_expected_before_tax_and_inflation(
         fixed_return=fixed_return, fixed_safe_deposit_rate=fixed_safe_deposit_rate,
         current_invest=current_invest, current_save=current_save,
         monthly_invest=monthly_invest, monthly_save=monthly_save,
@@ -87,6 +122,15 @@ def test_fixed_rate_before_tax_and_inflation(
     assert value_only_safe_deposit == approx(expected_value_only_safe_deposit)
 
 
+@pytest.mark.parametrize(
+    'capital_gains_tax_rate,investment_tax_exemption,fixed_return,fixed_safe_deposit_rate,'
+    'current_invest,current_save,monthly_invest,monthly_save,num_months',
+    [
+        (0.3, 0.2, 0.04, 0.02, 10_000, 10_000, 1_000, 1_000, 12),
+        (0.3, 0.2, 0.04, 0.02, 10_000, 10_000, 1_000, 1_000, 0),
+        (0.3, 0.2, 0.04, 0.02, 10_000,      0, 1_000,     0, 12)
+    ]
+)
 def test_fixed_rate_after_tax_and_before_inflation(
         capital_gains_tax_rate: float, investment_tax_exemption: float,
         fixed_return: float, fixed_safe_deposit_rate: float,
@@ -102,109 +146,124 @@ def test_fixed_rate_after_tax_and_before_inflation(
         monthly_invest=monthly_invest, monthly_save=monthly_save,
         num_months=num_months
     )
-    expected_value, expected_value_only_safe_deposit = calc_expected_before_tax_and_inflation(
+    _, expected_value_only_safe_deposit, expected_value_invest, expected_value_save = calc_expected_before_tax_and_inflation(
         fixed_return=fixed_return, fixed_safe_deposit_rate=fixed_safe_deposit_rate,
         current_invest=current_invest, current_save=current_save,
         monthly_invest=monthly_invest, monthly_save=monthly_save,
         num_months=num_months
     )
+    expected_value, expected_value_only_safe_deposit = calc_expected_after_tax(
+        investment_tax_exemption=investment_tax_exemption, capital_gains_tax_rate=capital_gains_tax_rate,
+        value_invest=expected_value_invest, value_save=expected_value_save,
+        value_only_safe_deposit=expected_value_only_safe_deposit,
+        current_invest=current_invest, current_save=current_save, monthly_invest=monthly_invest,
+        monthly_save=monthly_save, num_months=num_months
+    )
     assert value == approx(expected_value)
     assert value_only_safe_deposit == approx(expected_value_only_safe_deposit)
 
 
-def test_fixed_rate_after_tax():
-    tax_rate = 0.3
-    fixed_rate = 0.04
-    current_payment = 10_000
-    monthly_payment = 100
-    num_months = 20
-
-    sim = MonteCarloSimulation(
-        num_sim=0,
-        interest_rate=0,
-        capital_gains_tax_rate=tax_rate,
-        investment_tax_exemption=0,
-        yearly_inflation_rate=0,
-        max_batch_size=0
+@pytest.mark.parametrize(
+    'profit_invest,profit_save,investment_tax_exemption,capital_gains_tax_rate,expected_tax',
+    [
+        (1_000, 1_000, 0.3, 0.2, 1_000*(1-0.3)*0.2),
+        (1_000,  -500, 0.3, 0.2, (1_000-500)*(1-0.3)*0.2),
+        (-500,  1_000, 0.3, 0.2, 0),
+        (-500,   -500, 0.3, 0.2, 0)
+    ]
+)
+def test_calc_tax_invest(
+        profit_invest: float, profit_save: float,
+        investment_tax_exemption: float, capital_gains_tax_rate: float,
+        expected_tax: float
+):
+    tax = calc_tax_invest(
+        profit_invest=profit_invest, profit_save=profit_save,
+        investment_tax_exemption=investment_tax_exemption, capital_gains_tax_rate=capital_gains_tax_rate
     )
-    result = sim._simulate_value_over_time_after_tax(
-        num_rows=1, num_months=num_months, return_gen=FixedReturns(annualized_return=fixed_rate),
-        current_payment=current_payment, monthly_payment=monthly_payment, tax_exemption=0,
-        calculate_sequence=False
+    assert tax == approx(expected_tax)
+
+
+@pytest.mark.parametrize(
+    'profit_invest,profit_save,capital_gains_tax_rate,expected_tax',
+    [
+        (1_000, 1_000, 0.2, 1_000*0.2),
+        (-500,  1_000, 0.2, (1_000-500)*0.2),
+        (1_000,  -500, 0.2, 0),
+        (-500,   -500, 0.2, 0)
+    ]
+)
+def test_calc_tax_save(
+        profit_invest: float, profit_save: float,
+        capital_gains_tax_rate: float,
+        expected_tax: float
+):
+    tax = calc_tax_save(
+        profit_invest=profit_invest, profit_save=profit_save,
+        capital_gains_tax_rate=capital_gains_tax_rate
     )
-    result_sequence = sim._simulate_value_over_time_after_tax(
-        num_rows=1, num_months=num_months, return_gen=FixedReturns(annualized_return=fixed_rate),
-        current_payment=current_payment, monthly_payment=monthly_payment, tax_exemption=0,
-        calculate_sequence=True
+    assert tax == approx(expected_tax)
+
+
+@pytest.mark.parametrize(
+    'profit_only_save,capital_gains_tax_rate,expected_tax',
+    [
+        (1_000, 0.2, 1_000*0.2),
+        (-500,  0.2, 0)
+    ]
+)
+def test_calc_tax_only_save(
+        profit_only_save: float,
+        capital_gains_tax_rate: float,
+        expected_tax: float
+):
+    tax = calc_tax_only_save(
+        profit_only_save=profit_only_save,
+        capital_gains_tax_rate=capital_gains_tax_rate
     )
-
-    monthly_factor = (1 + fixed_rate) ** (1 / 12)
-    expected_result_before_tax = current_payment * monthly_factor ** (num_months - 1) \
-        + monthly_payment * (1 - monthly_factor ** (num_months - 1)) / (1 - monthly_factor)
-    expected_result = expected_result_before_tax \
-        - (expected_result_before_tax - (current_payment + (num_months-1) * monthly_payment)) * tax_rate
-
-    assert result[0, 0] == approx(expected_result), \
-        f"Expected equality but got {result[0, 0]} and {expected_result}"
-    assert result_sequence[0, -1] == approx(expected_result), \
-        f"Expected equality but got {result_sequence[0, -1]} and {expected_result}"
+    assert tax == approx(expected_tax)
 
 
-def test_fixed_rate_after_tax_and_inflation():
-    inflation_rate = 0.03
-    tax_rate = 0.3
-    fixed_rate = 0.04
-    current_payment = 10_000
-    monthly_payment = 100
-    num_years = 10
-
-    sim = MonteCarloSimulation(
-        num_sim=1,
-        interest_rate=fixed_rate,
-        capital_gains_tax_rate=tax_rate,
-        investment_tax_exemption=0,
-        yearly_inflation_rate=inflation_rate,
-        max_batch_size=1,
-        investment_return_gen=FixedReturns(annualized_return=fixed_rate)
+@pytest.mark.parametrize(
+    'capital_gains_tax_rate,investment_tax_exemption,fixed_return,fixed_safe_deposit_rate,'
+    'fixed_inflation_rate,current_invest,current_save,monthly_invest,monthly_save,num_months',
+    [
+        (0.3, 0.2, 0.04, 0.02, 0.03, 10_000, 10_000, 1_000, 1_000, 12),
+        (0.3, 0.2, 0.04, 0.02, 0.03, 10_000, 10_000, 1_000, 1_000, 0),
+        (0.3, 0.2, 0.04, 0.02, 0.03, 10_000,      0, 1_000,     0, 12)
+    ]
+)
+def test_fixed_rate_after_tax_and_inflation(
+        capital_gains_tax_rate: float, investment_tax_exemption: float,
+        fixed_return: float, fixed_safe_deposit_rate: float, fixed_inflation_rate: float,
+        current_invest: float, current_save: float,
+        monthly_invest: float, monthly_save: float,
+        num_months: int
+):
+    value, value_only_safe_deposit = run(
+        capital_gains_tax_rate=capital_gains_tax_rate, investment_tax_exemption=investment_tax_exemption,
+        fixed_return=fixed_return, fixed_safe_deposit_rate=fixed_safe_deposit_rate,
+        inflation_rate=fixed_inflation_rate,
+        current_invest=current_invest, current_save=current_save,
+        monthly_invest=monthly_invest, monthly_save=monthly_save,
+        num_months=num_months
     )
-    result = sim.simulate(
-        num_years=num_years, current_invest=0, current_save=current_payment,
-        monthly_invest=0, monthly_save=monthly_payment, calculate_sequence=False
+    _, expected_value_only_safe_deposit, expected_value_invest, expected_value_save = calc_expected_before_tax_and_inflation(
+        fixed_return=fixed_return, fixed_safe_deposit_rate=fixed_safe_deposit_rate,
+        current_invest=current_invest, current_save=current_save,
+        monthly_invest=monthly_invest, monthly_save=monthly_save,
+        num_months=num_months
     )
-    result = result.value_only_safe_deposit[0]
-
-    result_sequence = sim.simulate(
-        num_years=num_years, current_invest=0, current_save=current_payment,
-        monthly_invest=0, monthly_save=monthly_payment, calculate_sequence=True
+    expected_value, expected_value_only_safe_deposit = calc_expected_after_tax(
+        investment_tax_exemption=investment_tax_exemption, capital_gains_tax_rate=capital_gains_tax_rate,
+        value_invest=expected_value_invest, value_save=expected_value_save,
+        value_only_safe_deposit=expected_value_only_safe_deposit,
+        current_invest=current_invest, current_save=current_save, monthly_invest=monthly_invest,
+        monthly_save=monthly_save, num_months=num_months
     )
-    result_sequence = result_sequence.value_only_safe_deposit[-1]
+    monthly_inflation = (1. + fixed_inflation_rate) ** (1 / 12)
+    expected_value /= monthly_inflation ** num_months
+    expected_value_only_safe_deposit /= monthly_inflation ** num_months
 
-    result_invest = sim.simulate(
-        num_years=num_years, current_invest=current_payment, current_save=0,
-        monthly_invest=monthly_payment, monthly_save=0, calculate_sequence=False
-    )
-    result_invest = result_invest.total_value[0, 0]
-
-    result_invest_sequence = sim.simulate(
-        num_years=num_years, current_invest=current_payment, current_save=0,
-        monthly_invest=monthly_payment, monthly_save=0, calculate_sequence=True
-    )
-    result_invest_sequence = result_invest_sequence.total_value[0, -1]
-
-    num_months = num_years * 12
-    monthly_factor = (1 + fixed_rate) ** (1 / 12)
-    expected_result_before_tax = current_payment * monthly_factor ** (num_months - 1) \
-        + monthly_payment * (1 - monthly_factor ** (num_months - 1)) / (1 - monthly_factor)
-    expected_result_after_tax = expected_result_before_tax \
-        - (expected_result_before_tax - (current_payment + (num_months-1) * monthly_payment)) * tax_rate
-    monthly_factor_inflation = 1 / (1 + inflation_rate) ** (1 / 12)
-    expected_result = expected_result_after_tax * monthly_factor_inflation ** (num_months - 1)
-
-    assert result == approx(expected_result), \
-        f"Expected equality but got {result} and {expected_result}"
-    assert result_sequence == approx(expected_result), \
-        f"Expected equality but got {result_sequence} and {expected_result}"
-    assert result_invest == approx(expected_result), \
-        f"Expected equality but got {result_invest} and {expected_result}"
-    assert result_invest_sequence == approx(expected_result), \
-        f"Expected equality but got {result_invest_sequence} and {expected_result}"
+    assert value == approx(expected_value)
+    assert value_only_safe_deposit == approx(expected_value_only_safe_deposit)
