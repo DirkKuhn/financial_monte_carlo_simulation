@@ -12,8 +12,8 @@ parent_path = Path(__file__).parent
 
 class HistoricalMonthlyGenerator(ABC):
     """
-    Implement this class by providing time series data and storing it under ``_values``.
-    The data is expected to be a ``pd.Series`` object of monthly factors.
+    Implement this class by providing time series data and storing it under ``self._values``.
+    The data is expected to be a ``pd.Series`` object of monthly factors with the index cast to monthly periods.
     """
     _values: pd.Series
 
