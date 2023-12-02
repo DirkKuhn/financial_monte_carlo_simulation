@@ -11,6 +11,10 @@ parent_path = Path(__file__).parent
 
 
 class HistoricalMonthlyGenerator(ABC):
+    """
+    Implement this class by providing time series data and storing it under ``_values``.
+    The data is expected to be a ``pd.Series`` object of monthly factors.
+    """
     _values: pd.Series
 
     def print_statistics(self) -> None:

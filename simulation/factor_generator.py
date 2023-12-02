@@ -8,6 +8,10 @@ from simulation.generator import HistoricalMonthlyGenerator, IndependentMonthlyG
 
 @ti.data_oriented
 class FactorsGen:
+    """
+    Taichi statically compiles code. Therefore, some tricks are required to achieve a similar flexibility common
+    to Python. If multiple ``HistoricalMonthlyGenerators`` are passed, samples are drawn jointly from them.
+    """
     def __init__(
             self,
             investment_return_gen: HistoricalMonthlyGenerator | IndependentMonthlyGenerator,
