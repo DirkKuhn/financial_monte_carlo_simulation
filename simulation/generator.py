@@ -122,7 +122,7 @@ class HistoricalECBRate(HistoricalMonthlyGenerator):
 class HistoricalGermanInflation(HistoricalMonthlyGenerator):
     def __init__(self):
         yearly_percentages_before_jan_1991 = pd.read_excel(
-            parent_path / "data/API_FP.CPI.TOTL.ZG_DS2_en_excel_v2_5994828.xls", header=3, index_col=0
+            parent_path / "data/world_bank_yearly_inflation.xls", header=3, index_col=0
         )
         yearly_percentages_before_jan_1991 = yearly_percentages_before_jan_1991.loc['Germany'].iloc[3:]
         yearly_percentages_before_jan_1991 = yearly_percentages_before_jan_1991.astype(float) / 100 + 1
@@ -135,7 +135,7 @@ class HistoricalGermanInflation(HistoricalMonthlyGenerator):
         import warnings
         with warnings.catch_warnings(record=True):
             monthly_price_levels_after_jan_1991 = pd.read_excel(
-                parent_path / "data/61111-0002_$F.xlsx", header=3, index_col=[0], parse_dates=[[0, 1]],
+                parent_path / "data/german_monthly_inflation.xlsx", header=3, index_col=[0], parse_dates=[[0, 1]],
                 date_format="%Y %B", skiprows=[4], skipfooter=3, na_values="..."
             )
         locale.setlocale(locale.LC_ALL, ".".join(default_locale))
